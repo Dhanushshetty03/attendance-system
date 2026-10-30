@@ -1,0 +1,269 @@
+// Prisma Schema for Smart Attendance Management System (Logisys-Inspired)
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id           String          @id @default(uuid())
+  email        String          @unique
+  passwordHash String
+  name         String
+  role         String          @default("STUDENT") // STUDENT, FACULTY, ADMIN
+  avatar       String?
+  isActive     Boolean         @default(true)
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  studentProfile StudentProfile?
+  facultyProfile FacultyProfile?
+  notifications  Notification[]
+  auditLogs      AuditLog[]
+
+  // Records marked or reviewed
+  markedRecords     AttendanceRecord[]            @relation("MarkedByFaculty")
+  reviewedRequests  AttendanceCorrectionRequest[] @relation("ReviewedByAdmin")
+}
+
+model Department {
+  id          String   @id @default(uuid())
+  code        String   @unique // e.g., "CSE", "ECE", "ME"
+  name        String   // e.g., "Computer Science & Engineering"
+  description String?
+  createdAt   DateTime @default(now())
+
+  students         StudentProfile[]
+  facultyMembers   FacultyProfile[]
+  subjects         Subject[]
+  sections         Section[]
+}
+
+model AcademicTerm {
+  id             String    @id @default(uuid())
+  name           String    // e.g., "Odd Semester 2026-27"
+  academicYear   String    // e.g., "2026-2027"
+  semesterNumber Int       // 1 to 8
+  isCurrent      Boolean   @default(false)
+  startDate      DateTime
+  endDate        DateTime
+  createdAt      DateTime  @default(now())
+
+  enrollments         Enrollment[]
+  facultyAssignments  FacultyAssignment[]
+}
+
+model Subject {
+  id                 String   @id @default(uuid())
+  code               String   @unique // e.g., "CS501"
+  name               String   // e.g., "Database Management Systems"
+  departmentId       String
+  semester           Int      // 1 to 8
+  credits            Int      @default(4)
+  totalSyllabusHours Int      @default(45)
+  subjectType        String   @default("THEORY") // THEORY, LAB, ELECTIVE
+  createdAt          DateTime @default(now())
+
+  department         Department          @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  enrollments        Enrollment[]
+  facultyAssignments FacultyAssignment[]
+  timetables         Timetable[]
+  classSessions      ClassSession[]
+}
+
+model Section {
+  id           String   @id @default(uuid())
+  name         String   // e.g., "5A", "5B"
+  departmentId String
+  semester     Int      // 1 to 8
+  createdAt    DateTime @default(now())
+
+  department         Department          @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  timetables         Timetable[]
+  facultyAssignments FacultyAssignment[]
+  classSessions      ClassSession[]
+
+  @@unique([name, departmentId, semester])
+}
+
+model StudentProfile {
+  id              String   @id @default(uuid())
+  userId          String   @unique
+  usn             String   @unique // University Seat Number / Reg No e.g. "1MS21CS089"
+  departmentId    String
+  semester        Int      @default(5)
+  section         String   @default("A") // e.g. "A"
+  rollNo          String?
+  contactNo       String?
+  guardianName    String?
+  guardianContact String?
+  academicBatch   String?  // e.g., "2023-2027"
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user               User                          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  department         Department                    @relation(fields: [departmentId], references: [id])
+  enrollments        Enrollment[]
+  attendanceRecords  AttendanceRecord[]
+  correctionRequests AttendanceCorrectionRequest[]
+}
+
+model FacultyProfile {
+  id            String   @id @default(uuid())
+  userId        String   @unique
+  employeeId    String   @unique // e.g. "FAC-CSE-012"
+  departmentId  String
+  designation   String   // e.g. "Associate Professor"
+  qualification String?  // e.g. "Ph.D. in Computer Science"
+  contactNo     String?
+  joiningDate   DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user               User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  department         Department          @relation(fields: [departmentId], references: [id])
+  facultyAssignments FacultyAssignment[]
+  classSessions      ClassSession[]
+  timetables         Timetable[]
+}
+
+model Enrollment {
+  id             String   @id @default(uuid())
+  studentId      String
+  subjectId      String
+  academicTermId String
+  isActive       Boolean  @default(true)
+  enrolledAt     DateTime @default(now())
+
+  student      StudentProfile @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  subject      Subject        @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  academicTerm AcademicTerm   @relation(fields: [academicTermId], references: [id], onDelete: Cascade)
+
+  @@unique([studentId, subjectId, academicTermId])
+}
+
+model FacultyAssignment {
+  id             String   @id @default(uuid())
+  facultyId      String
+  subjectId      String
+  sectionId      String
+  academicTermId String
+  createdAt      DateTime @default(now())
+
+  faculty      FacultyProfile @relation(fields: [facultyId], references: [id], onDelete: Cascade)
+  subject      Subject        @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  section      Section        @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  academicTerm AcademicTerm   @relation(fields: [academicTermId], references: [id], onDelete: Cascade)
+
+  @@unique([facultyId, subjectId, sectionId, academicTermId])
+}
+
+model Timetable {
+  id          String   @id @default(uuid())
+  dayOfWeek   String   // "MONDAY", "TUESDAY", etc.
+  startTime   String   // "09:00"
+  endTime     String   // "10:00"
+  subjectId   String
+  sectionId   String
+  facultyId   String
+  roomNumber  String   // e.g. "L-301"
+
+  subject Subject        @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  section Section        @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  faculty FacultyProfile @relation(fields: [facultyId], references: [id], onDelete: Cascade)
+}
+
+model ClassSession {
+  id           String    @id @default(uuid())
+  subjectId    String
+  sectionId    String
+  facultyId    String
+  date         DateTime  // YYYY-MM-DD
+  timeSlot     String    // "09:00 - 10:00"
+  topicCovered String?
+  sessionType  String    @default("REGULAR") // REGULAR, LAB, TUTORIAL, REMEDIAL
+  isLocked     Boolean   @default(false)
+  lockedAt     DateTime?
+  createdAt    DateTime  @default(now())
+
+  subject            Subject                       @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  section            Section                       @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  faculty            FacultyProfile                @relation(fields: [facultyId], references: [id], onDelete: Cascade)
+  attendanceRecords  AttendanceRecord[]
+  correctionRequests AttendanceCorrectionRequest[]
+
+  @@unique([subjectId, sectionId, date, timeSlot])
+}
+
+model AttendanceRecord {
+  id         String   @id @default(uuid())
+  sessionId  String
+  studentId  String
+  status     String   @default("PRESENT") // PRESENT, ABSENT, LEAVE
+  remarks    String?
+  markedById String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  session  ClassSession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  student  StudentProfile @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  markedBy User?          @relation("MarkedByFaculty", fields: [markedById], references: [id])
+
+  @@unique([sessionId, studentId])
+}
+
+model AttendanceCorrectionRequest {
+  id              String   @id @default(uuid())
+  studentId       String
+  sessionId       String
+  currentStatus   String   // PRESENT, ABSENT, LEAVE
+  requestedStatus String   // PRESENT, ABSENT, LEAVE
+  reason          String
+  proofDocUrl     String?
+  status          String   @default("PENDING") // PENDING, APPROVED, REJECTED
+  reviewedById    String?
+  reviewRemarks   String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  student    StudentProfile @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  session    ClassSession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  reviewedBy User?          @relation("ReviewedByAdmin", fields: [reviewedById], references: [id])
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  title     String
+  message   String
+  type      String   @default("INFO") // WARNING, INFO, SUCCESS, ALERT
+  isRead    Boolean  @default(false)
+  link      String?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?
+  action    String   // e.g., "ATTENDANCE_MARKED", "CORRECTION_APPROVED", "STUDENT_CREATED"
+  entity    String   // e.g., "AttendanceRecord", "User"
+  entityId  String?
+  details   String?  // JSON or text description
+  ipAddress String?
+  createdAt DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+}
+
+model SystemSetting {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  value       String
+  description String?
+  updatedAt   DateTime @updatedAt
+}
